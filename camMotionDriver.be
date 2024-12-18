@@ -1,4 +1,5 @@
 import string
+import json
 import webserver
 
 # this is to be loaded as a driver
@@ -8,7 +9,10 @@ class camdriver
     def init()
         print('WCM: '..'webcam init')
         self.motion = {
-            'state':0
+            'state':0,
+            'val':0,
+            'bri':0,
+            'pix':0
         }
         self.start()
     end
@@ -37,18 +41,17 @@ class camdriver
     end
 
     def startmotion()
-        var options = self.motion;
-        if options['state']
+        if self.motion['state']
             self.stopmotion()
         end
 
-        if options['state'] == 0
+        if self.motion['state'] == 0
             tasmota.cmd("wcsetmotiondetect7 1000"); # overall normalised picture difference to cause detection
             tasmota.cmd("wcsetmotiondetect6 1"); # turn on/off difference buffer
             tasmota.cmd("wcsetmotiondetect3 10"); # set the pixel difference threshold (0-255). pixels which differ more than this from the previous image are counted.
             tasmota.cmd("wcsetmotiondetect4 10"); # set the count of pixels which must be different in 10000 pixels to trigger a motion event.
             tasmota.cmd("wcsetmotiondetect 2000"); # enable basic motion detection, operated at the period specified.
-            options['state'] = 1
+            self.motion['state'] = 1
             print('WCM: '..'started motion')
         end
     end
@@ -57,7 +60,11 @@ class camdriver
     def webcam(cmd, idx, payload, x)
         # called when motion is detected
         if cmd == 'motion'
-            print('WCM: '..cmd..payload)
+            print('WCM: '..cmd..' '..payload)
+            var data = json.load(payload)
+            self.motion['bri'] = data['bri']
+            self.motion['pix'] = data['pix']
+            self.motion['val'] = data['val']
         end
 
         # called when framesize changed by more than the configured amount.
@@ -75,30 +82,15 @@ class camdriver
         self.webcam('motion', 0, '{"val":1000,"bri":15000,"pix":20}', {"val":1000,"bri":15000,"pix":20})
     end
 
-    def getlink(url, newpage, text)
-        var js = "window.open('" .. url .."'"
-        if newpage
-            js  = js .. ",'_blank'" 
-        else
-            js  = js .. ",'_self'" 
-        end
-        js = js .. ")"
-
-        return '<p></p><button onclick="' .. js .. '">' .. text .. '</button>'
-    end
-
-    def web_add_main_button()
-        var url = '/timelapse/index.html'
-        var newpage = 1
-        var text = 'Timelapse Viewer'
-
-        webserver.content_send(self.getlink(url, newpage, text))    
-        webserver.content_send("<p></p><button onclick='la(\"&m_bewebcam=1\");'>Start/Restart Berry Webcam</button>")
-        webserver.content_send("<p></p><button onclick='la(\"&m_bewebcam=2\");'>Stop Berry Webcam</button>")
-    end
-
     def web_sensor()
-        print('WCM: '..'web_sensor')
+        # print('WCM: '..'web_sensor')
+        var msg = string.format(
+            "{s}Motion bri{m}%d{e}"..
+            "{s}Motion pix{m}%d{e}"..
+            "{s}Motion val{m}%d{e}",
+            self.motion['bri'], self.motion['pix'], self.motion['val'] )
+        tasmota.web_send_decimal(msg)
+        
         if webserver.has_arg("m_bewebcam")
             var val = webserver.arg("m_bewebcam");
             print('WCM: '..'m_bewebcam'..val)
