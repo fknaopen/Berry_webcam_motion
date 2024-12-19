@@ -5,15 +5,17 @@ import webserver
 # this is to be loaded as a driver
 class camdriver
     var motion
-
+    var mqttmsg
+    
     def init()
         print('WCM: '..'webcam init')
         self.motion = {
             'state':0,
-            'val':0,
-            'bri':0,
-            'pix':0
+            'detect':0,
+            'data':'{"val":0, "bri":0, "pix":0}'
         }
+
+        self.mqttmsg = string.format(",\"CamMotion\":{\"Detect\":%i}", self.motion['detect'])
         self.start()
     end
 
@@ -36,6 +38,7 @@ class camdriver
             tasmota.cmd("wcsetmotiondetect6 0"); # turn on/off difference buffer
             
             print('WCM: '..'stopped motion ')
+            self.motion['detect'] = 0
             self.motion['state'] = 0
         end
     end
@@ -46,7 +49,7 @@ class camdriver
         end
 
         if self.motion['state'] == 0
-            tasmota.cmd("wcsetmotiondetect7 1000"); # overall normalised picture difference to cause detection
+            tasmota.cmd("wcsetmotiondetect7 600"); # overall normalised picture difference to cause detection
             tasmota.cmd("wcsetmotiondetect6 1"); # turn on/off difference buffer
             tasmota.cmd("wcsetmotiondetect3 10"); # set the pixel difference threshold (0-255). pixels which differ more than this from the previous image are counted.
             tasmota.cmd("wcsetmotiondetect4 10"); # set the count of pixels which must be different in 10000 pixels to trigger a motion event.
@@ -58,48 +61,39 @@ class camdriver
 
     # callback from webcam driver in tas on motion or other event 
     def webcam(cmd, idx, payload, x)
+        if !self.motion return nil end  #- exit if not initialized -#
         # called when motion is detected
         if cmd == 'motion'
             print('WCM: '..cmd..' '..payload)
-            var data = json.load(payload)
-            self.motion['bri'] = data['bri']
-            self.motion['pix'] = data['pix']
-            self.motion['val'] = data['val']
-        end
-
-        # called when framesize changed by more than the configured amount.
-        if cmd == 'framesizechange'
-            print('WCM: '..cmd..payload)
-        end
-
-        # called every frame if enabled
-        if cmd == "frame"
-            print('WCM: '..'frame'..payload)
+            self.motion['data'] = payload
+            self.motion['detect'] = 1
+            
+            self.mqttmsg = string.format(",\"CamMotion\":{\"Detect\":%i}", self.motion['detect'])
+            tasmota.cmd('mtrupdate {"name":"v_motion", "occupancy":1}')
         end
     end
 
-    def testmotion()
-        self.webcam('motion', 0, '{"val":1000,"bri":15000,"pix":20}', {"val":1000,"bri":15000,"pix":20})
+    def every_second()
+        if !self.motion return nil end  #- exit if not initialized -#
+        
     end
 
     def web_sensor()
+        if !self.motion return nil end  #- exit if not initialized -#
         # print('WCM: '..'web_sensor')
+        var data = json.load(self.motion['data'])
         var msg = string.format(
             "{s}Motion bri{m}%d{e}"..
             "{s}Motion pix{m}%d{e}"..
             "{s}Motion val{m}%d{e}",
-            self.motion['bri'], self.motion['pix'], self.motion['val'] )
+            data['bri'], data['pix'], data['val'] )
         tasmota.web_send_decimal(msg)
-        
-        if webserver.has_arg("m_bewebcam")
-            var val = webserver.arg("m_bewebcam");
-            print('WCM: '..'m_bewebcam'..val)
-            if val == '1'
-                self.start()
-            else
-                self.stop()
-            end
-        end
+    end
+
+    #- add sensor value to teleperiod (TelePeriod default value = 300 sec.) -#
+    def json_append()
+        if !self.motion return nil end  #- exit if not initialized -#
+        tasmota.response_append(self.mqttmsg)
     end
 
 end
