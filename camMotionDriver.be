@@ -9,6 +9,7 @@ class camdriver
     var act_count
     var act_count_start
     var data_ini
+    var topic
     
     def init()
         log('WCM: '..'webcam init')
@@ -19,9 +20,12 @@ class camdriver
         self.motion = {
             'state':0,
             'detect':0,
+            'summary':0,
             'data':self.data_ini
         }
 
+        self.topic = string.replace(string.replace(tasmota.cmd('FullTopic')['FullTopic'], '%topic%', tasmota.cmd('Topic')['Topic']), '%prefix%', tasmota.cmd('Prefix')['Prefix3']) + 'SENSOR2'
+        
         self.start()
     end
 
@@ -41,8 +45,10 @@ class camdriver
             tasmota.cmd("wcsetmotiondetect4 0"); # set the count of pixels which must be different in 10000 pixels to trigger a motion event.
             tasmota.cmd("wcsetmotiondetect6 0"); # turn on/off difference buffer
             
+            tasmota.remove_cron("every_10_min")
             log('WCM: '..'stopped motion ')
             self.motion['detect'] = 0
+            self.motion['summary'] = 0
             self.motion['state'] = 0
         end
     end
@@ -59,16 +65,25 @@ class camdriver
             tasmota.cmd("wcsetmotiondetect4 10"); # set the count of pixels which must be different in 10000 pixels to trigger a motion event.
             tasmota.cmd("wcsetmotiondetect 2000"); # enable basic motion detection, operated at the period specified.
 
+            tasmota.add_cron("0 */1 * * * *", def() self.publish_mqtt() end, "every_10_min")
             log('WCM: '..'started motion')
             self.motion['state'] = 1
         end
     end
     
-    def publish_state(detect)
+    def publish_mqtt()
         if tasmota.wifi().find('ip') == nil return nil end #- exit if not connected -#
         
+        var payload = tasmota.read_sensors()
+        mqtt.publish(self.topic, payload)
+        self.motion['summary'] = 0
+    end
+    
+    def publish_matter()
+        if tasmota.wifi().find('ip') == nil return nil end #- exit if not connected -#
+        
+        var detect = self.motion['detect']
         tasmota.cmd('mtrupdate {"name":"vmotion", "occupancy":'..detect..'}')
-        log('WCM: '..tasmota.read_sensors())
     end
 
     # callback from webcam driver in tas on motion or other event 
@@ -80,7 +95,8 @@ class camdriver
             self.motion['data'] = payload
             if self.motion['detect'] == 0
                 self.motion['detect'] = 1
-                self.publish_state(self.motion['detect'])
+                self.motion['summary'] += 1
+                self.publish_matter()
             end
             self.act_count = self.act_count_start
         end
@@ -93,7 +109,7 @@ class camdriver
             self.act_count = -1
             self.motion['detect'] = 0
             self.motion['data'] = self.data_ini
-            self.publish_state(self.motion['detect'])
+            self.publish_matter()
         elif self.act_count > 0
             self.act_count -= 1
         end
@@ -101,7 +117,6 @@ class camdriver
 
     def web_sensor()
         if !self.motion || !self.motion['state']  return nil end  #- exit if not initialized -#
-        # log('WCM: '..'web_sensor')
         var data = json.load(self.motion['data'])
         var msg = string.format(
             "{s}Motion bri{m}%d{e}"..
@@ -114,7 +129,7 @@ class camdriver
     #- add sensor value to teleperiod or read_sensors() function -#
     def json_append()
         if !self.motion || !self.motion['state']  return nil end  #- exit if not initialized -#
-        var msg = string.format(",\"CamMotion\":{\"Detect\":%i}", self.motion['detect'])
+        var msg = string.format(",\"CamMotion\":{\"Detect\":%i}", self.motion['summary'])
         tasmota.response_append(msg)
     end
 
