@@ -23,7 +23,7 @@ class camdriver
             'summary':0,
             'data':self.data_ini
         }
-
+        
         self.topic = string.replace(string.replace(tasmota.cmd('FullTopic')['FullTopic'], '%topic%', tasmota.cmd('Topic')['Topic']), '%prefix%', tasmota.cmd('Prefix')['Prefix3']) + 'SENSOR2'
         
         self.start()
@@ -65,7 +65,7 @@ class camdriver
             tasmota.cmd("wcsetmotiondetect4 10"); # set the count of pixels which must be different in 10000 pixels to trigger a motion event.
             tasmota.cmd("wcsetmotiondetect 2000"); # enable basic motion detection, operated at the period specified.
 
-            tasmota.add_cron("0 */1 * * * *", def() self.publish_mqtt() end, "every_10_min")
+            tasmota.add_cron("0 */10 * * * *", def() self.publish_mqtt() end, "every_10_min")
             log('WCM: '..'started motion')
             self.motion['state'] = 1
         end
@@ -74,8 +74,9 @@ class camdriver
     def publish_mqtt()
         if tasmota.wifi().find('ip') == nil return nil end #- exit if not connected -#
         
-        var payload = tasmota.read_sensors()
-        mqtt.publish(self.topic, payload)
+        var id = string.split(tasmota.wifi()['mac'], ':')
+        self.topic = string.replace(self.topic, '%06X', id[3]..id[4]..id[5])
+        mqtt.publish(self.topic, tasmota.read_sensors())
         self.motion['summary'] = 0
     end
     
@@ -91,11 +92,11 @@ class camdriver
         if !self.motion || !self.motion['state'] return nil end  #- exit if not initialized -#
         # called when motion is detected
         if cmd == 'motion'
-            log('WCM: '..cmd..' '..payload)
             self.motion['data'] = payload
+            self.motion['summary'] += 1
+            log('WCM: '..cmd..' '..payload..' summary:'..self.motion['summary'])
             if self.motion['detect'] == 0
                 self.motion['detect'] = 1
-                self.motion['summary'] += 1
                 self.publish_matter()
             end
             self.act_count = self.act_count_start
