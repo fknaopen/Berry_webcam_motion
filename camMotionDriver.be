@@ -62,7 +62,7 @@ class camdriver
             tasmota.cmd("wcsetmotiondetect7 600"); # overall normalised picture difference to cause detection
             tasmota.cmd("wcsetmotiondetect6 1"); # turn on/off difference buffer
             tasmota.cmd("wcsetmotiondetect3 10"); # set the pixel difference threshold (0-255). pixels which differ more than this from the previous image are counted.
-            tasmota.cmd("wcsetmotiondetect4 3"); # set the count of pixels which must be different in 10000 pixels to trigger a motion event.
+            tasmota.cmd("wcsetmotiondetect4 5"); # set the count of pixels which must be different in 10000 pixels to trigger a motion event.
             tasmota.cmd("wcsetmotiondetect 2000"); # enable basic motion detection, operated at the period specified.
 
             tasmota.add_cron("0 */10 * * * *", def() self.publish_mqtt() end, "every_10_min")
